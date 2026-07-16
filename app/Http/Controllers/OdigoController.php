@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OdigoMessage;
 use App\Models\Person;
 use Illuminate\Http\Request;
+use Native\Laravel\Facades\Window;
 
 class OdigoController extends Controller
 {
@@ -14,9 +15,63 @@ class OdigoController extends Controller
         'odigo_id' => 'ventura@odigo.im',
     ];
 
+    /**
+     * Every Odigo panel = its own window. One source of truth for both the
+     * desktop (native frameless windows opened in NativeAppServiceProvider)
+     * and the web shell (draggable iframes). x/y/w/h are the default layout.
+     */
+    public static function windows(): array
+    {
+        return [
+            'people-finder' => ['title' => 'People Finder',        'w' => 300, 'h' => 640, 'x' => 430, 'y' => 60,  'resizable' => false],
+            'filter'        => ['title' => 'People Finder Filter', 'w' => 320, 'h' => 500, 'x' => 70,  'y' => 120, 'resizable' => false],
+            'details'       => ['title' => 'Details',              'w' => 520, 'h' => 440, 'x' => 760, 'y' => 60,  'resizable' => true],
+            'communication' => ['title' => 'Communication Center', 'w' => 560, 'h' => 380, 'x' => 150, 'y' => 470, 'resizable' => true],
+            'status'        => ['title' => 'Status',               'w' => 250, 'h' => 120, 'x' => 340, 'y' => 720, 'resizable' => false],
+            'send'          => ['title' => 'Send',                 'w' => 220, 'h' => 96,  'x' => 70,  'y' => 720, 'resizable' => false],
+        ];
+    }
+
+    /** Web entry: a desktop shell that hosts each panel as a draggable iframe. */
     public function index()
     {
-        return view('odigo', ['me' => $this->me]);
+        return view('odigo-shell', ['windows' => static::windows()]);
+    }
+
+    /** Render a single panel window (used by both native windows and iframes). */
+    public function panel(string $name)
+    {
+        abort_unless(array_key_exists($name, static::windows()), 404);
+
+        return view('win.' . $name, ['me' => $this->me]);
+    }
+
+    /** Desktop: open a panel as a native window (idempotent-ish). */
+    public function winOpen(Request $request)
+    {
+        $name = $request->input('panel');
+        $cfg = static::windows()[$name] ?? null;
+        abort_if($cfg === null, 404);
+
+        Window::open($name)
+            ->title($cfg['title'])
+            ->url('/w/' . $name)
+            ->width($cfg['w'])
+            ->height($cfg['h'])
+            ->position($cfg['x'], $cfg['y'])
+            ->frameless()
+            ->hasShadow(true)
+            ->resizable($cfg['resizable']);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** Desktop: close a panel window. */
+    public function winClose(Request $request)
+    {
+        Window::close($request->input('id'));
+
+        return response()->json(['ok' => true]);
     }
 
     /** Distinct filter option lists, built from the seeded data. */

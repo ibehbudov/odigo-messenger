@@ -1,0 +1,64 @@
+@verbatim
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Details</title>
+<link rel="stylesheet" href="/odigo/skin.css">
+</head>
+<body>
+<div class="panel">
+  <div class="navy-win">
+    <div class="blue-titlebar drag"><span class="ttl" id="det-title">Details</span>
+      <span class="win-btns"><span class="nodrag">&#8211;</span><span class="nodrag" data-close="details">&times;</span></span></div>
+    <div class="det-header" id="det-header">Pick someone in the People Finder to see their profile.</div>
+    <div class="det-body">
+      <div class="neon-strip"><div class="neon"><b>O</b><b>D</b><b>I</b><b>G</b><b>O</b></div></div>
+      <div class="det-panel" id="det-panel"></div>
+    </div>
+    <div class="det-foot">
+      <div class="det-btn" style="margin-right:auto;" data-close="details">Close</div>
+      <div class="det-btn" id="det-msg">Message</div>
+      <div class="det-btn" id="det-friend">Add Friend</div>
+    </div>
+  </div>
+</div>
+<script src="/odigo/bus.js"></script>
+<script>
+const { $, $$, api, jsonHeaders, on, openWindow, closeSelf } = Odigo;
+let current=null;
+
+function render(p){
+  current=p;
+  $('#det-title').textContent = p.display_name+"'s Details";
+  const rows=[
+    ['&#8987;','My age is (6-120)','Age',`${p.ageRange}  (${p.age})`],
+    ['&#9792;','Please indicate','Gender',p.gender],
+    ['&#127758;','Where are you from?','Region',p.region],
+    ['&#128172;','Language','Speaks',p.language],
+    ['&#127775;','Zodiac','Sign',p.zodiac],
+    ['&#128188;','Occupation','Works as',p.occupation],
+    ['&#9834;','Interested in','Topic',`${p.topic} · ${p.intention}`],
+    ['&#128512;','Current mood','Mood',`${p.mood} · ${p.status}`],
+  ];
+  $('#det-panel').innerHTML = rows.map(([ic,q,fl,fv])=>`
+    <div class="det-card"><div class="det-ic" style="background:linear-gradient(170deg,#bfe2f5,#1c5a96);">${ic}</div>
+      <div class="det-fields"><div class="det-q">${q}</div>
+        <div class="pillfield"><span class="fl">${fl}</span><span class="fv">${fv}</span></div></div></div>`).join('');
+  $('#det-header').textContent = p.tagline ? '“'+p.tagline+'”' : "Here's the profile — confidential, no one's getting personal.";
+  $('#det-friend').textContent = p.is_friend ? '✓ Friend' : 'Add Friend';
+}
+async function load(handle){ render(await api('/odigo/person/'+encodeURIComponent(handle))); }
+
+on('select',(p)=>{ if(p&&p.handle) load(p.handle); });
+$('#det-msg').addEventListener('click',()=>openWindow('communication'));
+$('#det-friend').addEventListener('click',async()=>{
+  if(!current) return;
+  const res=await api('/odigo/friends',{method:'POST',headers:jsonHeaders(),body:JSON.stringify({handle:current.handle})});
+  current.is_friend=true; $('#det-friend').textContent='✓ Friend'; Odigo.emit('stats-changed');
+});
+$$('[data-close]').forEach(b=>b.addEventListener('click',()=>closeSelf(b.dataset.close)));
+</script>
+</body>
+</html>
+@endverbatim

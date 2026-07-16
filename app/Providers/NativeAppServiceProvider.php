@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Http\Controllers\OdigoController;
 use Native\Laravel\Facades\Window;
 use Native\Laravel\Contracts\ProvidesPhpIni;
 
@@ -9,16 +10,23 @@ class NativeAppServiceProvider implements ProvidesPhpIni
 {
     /**
      * Executed once the native application has been booted.
-     * Use this method to open windows, register global shortcuts, etc.
+     * Odigo is a multi-window app: each panel opens as its own frameless
+     * native window that can be dragged anywhere on the desktop, like the
+     * original Odigo client. Windows sync via a BroadcastChannel in the browser.
      */
     public function boot(): void
     {
-        Window::open()
-            ->title('Odigo')
-            ->width(1320)
-            ->height(880)
-            ->minWidth(1000)
-            ->minHeight(680);
+        foreach (OdigoController::windows() as $name => $cfg) {
+            Window::open($name)
+                ->title($cfg['title'])
+                ->url('/w/' . $name)
+                ->width($cfg['w'])
+                ->height($cfg['h'])
+                ->position($cfg['x'], $cfg['y'])
+                ->frameless()
+                ->hasShadow(true)
+                ->resizable($cfg['resizable']);
+        }
     }
 
     /**
