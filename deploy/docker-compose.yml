@@ -1,0 +1,33 @@
+# Standalone web deploy for odigo.your.team.
+# Intentionally SEPARATE from /var/www/compose.yaml so it never touches the live
+# your.team stack. Joins the existing `www_appnet` network (external) so the shared
+# ingress (www-ingress-1) can proxy odigo.your.team -> odigo-web.
+#
+#   docker compose -f deploy/docker-compose.yml -p odigo up -d
+#
+# Reuses the already-built project-manager/landing:prod image (PHP 8.4-fpm with
+# pdo_sqlite etc.) as the runtime — no external image pull, no custom build.
+
+services:
+  odigo-php:
+    image: project-manager/landing:prod
+    command: php-fpm
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - /var/www/odigo-desktop:/var/www/html
+    networks: [appnet]
+
+  odigo-web:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - /var/www/odigo-desktop:/var/www/html:ro
+      - /var/www/odigo-desktop/deploy/odigo.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [appnet]
+    depends_on: [odigo-php]
+
+networks:
+  appnet:
+    external: true
+    name: www_appnet
