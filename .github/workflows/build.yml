@@ -93,6 +93,27 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          body: |
+            ## Odigo ${{ github.ref_name }}
+
+            ### Downloads
+            - **macOS (Apple Silicon):** `Odigo-*-arm64.dmg`
+            - **macOS (Intel):** `Odigo-*-x64.dmg`
+            - **Windows:** `Odigo-*.exe`
+            - **Linux:** `Odigo-*.AppImage` or `Odigo-*.deb`
+
+            ### ⚠️ macOS: "Odigo is damaged and can't be opened"
+            The app is not signed with an Apple Developer ID (no paid Apple account),
+            so macOS quarantines it on download. It is **not** actually damaged. To open:
+
+            1. Drag **Odigo** from the DMG into **Applications**.
+            2. In **Terminal**, run:
+               ```
+               xattr -cr /Applications/Odigo.app
+               ```
+            3. Open Odigo normally.
+
+            (Right-click → Open is not enough for this message — the `xattr` step is required.)
           files: |
             dist/*.exe
             dist/*.dmg
