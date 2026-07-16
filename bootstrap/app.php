@@ -11,7 +11,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Odigo's internal JSON API is called by the app's own frontend; exclude it from CSRF.
+        $middleware->validateCsrfTokens(except: [
+            'odigo/*',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

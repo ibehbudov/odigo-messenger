@@ -13,7 +13,12 @@ class NativeAppServiceProvider implements ProvidesPhpIni
      */
     public function boot(): void
     {
-        Window::open();
+        Window::open()
+            ->title('Odigo')
+            ->width(1320)
+            ->height(880)
+            ->minWidth(1000)
+            ->minHeight(680);
     }
 
     /**

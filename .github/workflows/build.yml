@@ -59,7 +59,19 @@ jobs:
         run: npm run build
 
       - name: Build desktop app (${{ matrix.platform }})
-        run: php artisan native:build ${{ matrix.platform }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            # Build each macOS arch in a SEPARATE electron-builder run. The default
+            # `native:build mac` packages arm64+x64 in one process, where NativePHP's
+            # un-awaited beforePack PHP-binary copy races the packaging and the arm64
+            # DMG ends up with the x64 binary -> crash on Apple Silicon. Separate runs
+            # repopulate resources/php per arch and fix the crash.
+            php artisan native:build mac arm64
+            php artisan native:build mac x64
+          else
+            php artisan native:build ${{ matrix.platform }}
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
