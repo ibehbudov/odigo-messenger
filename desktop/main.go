@@ -1,15 +1,23 @@
 // Odigo desktop — Wails v3 multi-window app.
-// Flow: launch shows ONLY the Login window. After sign-in, the People Finder
-// (hub) opens together with the ambient Status + Send widgets; Filter, Details
-// and Communication open on demand (People Finder buttons / clicking a person).
-// Each panel is its own frameless native window, draggable anywhere. Panels talk
-// to the Go backend at https://api-odigo.your.team and sync via the Wails event bus.
+//
+// Window control + cross-window sync do NOT use the Wails JS<->Go event transport
+// (unreliable in this alpha / headless). Instead the frontend talks to the app's
+// OWN asset server over SAME-ORIGIN fetch to /cmd/*, which a middleware here handles
+// directly against the native windows. State for cross-window sync (selected person,
+// active filters, stats revision) lives here and windows poll /cmd/state.
+//
+// Flow: launch shows ONLY the Login window; after Sign In the People Finder (hub) +
+// ambient Status/Send appear; Filter/Details/Communication open on demand. Each panel
+// is its own frameless native window, draggable anywhere.
 package main
 
 import (
 	"embed"
-	"fmt"
-	"log"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -21,7 +29,7 @@ type winCfg struct {
 	name, title string
 	w, h, x, y  int
 	resizable   bool
-	hidden      bool // hidden until sign-in / opened on demand
+	hidden      bool
 }
 
 var windows = []winCfg{
@@ -34,22 +42,115 @@ var windows = []winCfg{
 	{"send", "Send", 220, 96, 70, 720, false, true},
 }
 
-// Windows revealed right after sign-in (the rest open on demand).
 var afterLogin = []string{"people-finder", "status", "send"}
 
+// Shared UI state for cross-window sync (polled by windows via /cmd/state).
+type shared struct {
+	mu        sync.Mutex
+	rev       int    // bumps on any change
+	selection string // selected person handle
+	filters   string // raw JSON: {filters:{...}, search:""}
+	statsRev  int    // bumps when stats should refresh
+}
+
 func main() {
-	app := application.New(application.Options{
+	wins := map[string]*application.WebviewWindow{}
+	st := &shared{}
+	var app *application.App
+
+	// /cmd/* middleware: same-origin control channel (no Wails event transport).
+	cmd := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasPrefix(r.URL.Path, "/cmd/") {
+				next.ServeHTTP(w, r)
+				return
+			}
+			seg := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/cmd/"), "/"), "/")
+			w.Header().Set("Content-Type", "application/json")
+			// Window operations MUST run on the main thread (this handler runs on an
+			// HTTP goroutine); InvokeSync dispatches to it.
+			switch seg[0] {
+			case "login":
+				application.InvokeSync(func() {
+					for _, n := range afterLogin {
+						if wins[n] != nil {
+							wins[n].Show()
+						}
+					}
+					if wins["people-finder"] != nil {
+						wins["people-finder"].Focus()
+					}
+					if wins["login"] != nil {
+						wins["login"].Hide()
+					}
+				})
+			case "open":
+				if len(seg) > 1 {
+					name := seg[1]
+					application.InvokeSync(func() {
+						if wins[name] != nil {
+							wins[name].Show()
+							wins[name].Focus()
+						}
+					})
+				}
+			case "close":
+				if len(seg) > 1 {
+					name := seg[1]
+					application.InvokeSync(func() {
+						switch name {
+						case "people-finder", "login":
+							if app != nil {
+								app.Quit()
+							}
+						default:
+							if wins[name] != nil {
+								wins[name].Hide()
+							}
+						}
+					})
+				}
+			case "select":
+				if len(seg) > 1 {
+					st.mu.Lock()
+					st.selection = seg[1]
+					st.rev++
+					st.mu.Unlock()
+				}
+			case "filters":
+				body, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
+				st.mu.Lock()
+				st.filters = string(body)
+				st.rev++
+				st.mu.Unlock()
+			case "stats":
+				st.mu.Lock()
+				st.statsRev++
+				st.rev++
+				st.mu.Unlock()
+			case "state":
+				st.mu.Lock()
+				out := map[string]any{"rev": st.rev, "selection": st.selection, "filters": st.filters, "statsRev": st.statsRev}
+				st.mu.Unlock()
+				json.NewEncoder(w).Encode(out)
+				return
+			}
+			w.Write([]byte(`{"ok":true}`))
+		})
+	}
+
+	app = application.New(application.Options{
 		Name:        "Odigo",
 		Description: "Odigo Messenger",
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler:    application.AssetFileServerFS(assets),
+			Middleware: cmd,
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 	})
 
-	wins := make(map[string]*application.WebviewWindow, len(windows))
 	for _, c := range windows {
 		wins[c.name] = app.Window.NewWithOptions(application.WebviewWindowOptions{
 			Name:             c.name,
@@ -66,44 +167,7 @@ func main() {
 		})
 	}
 
-	// Sign-in: reveal the messenger, dismiss the login window.
-	app.Event.On("odigo:login", func(e *application.CustomEvent) {
-		for _, name := range afterLogin {
-			if win := wins[name]; win != nil {
-				win.Show()
-			}
-		}
-		if win := wins["people-finder"]; win != nil {
-			win.Focus()
-		}
-		if lg := wins["login"]; lg != nil {
-			lg.Hide()
-		}
-	})
-
-	// Open (or re-focus) a panel window on demand.
-	app.Event.On("odigo:win-open", func(e *application.CustomEvent) {
-		if win := wins[fmt.Sprintf("%v", e.Data)]; win != nil {
-			win.Show()
-			win.Focus()
-		}
-	})
-
-	// Close a window. The hub (People Finder) and the Login window quit the app;
-	// every other panel just hides so it can be reopened.
-	app.Event.On("odigo:win-close", func(e *application.CustomEvent) {
-		name := fmt.Sprintf("%v", e.Data)
-		switch name {
-		case "people-finder", "login":
-			app.Quit()
-		default:
-			if win := wins[name]; win != nil {
-				win.Hide()
-			}
-		}
-	})
-
 	if err := app.Run(); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 }

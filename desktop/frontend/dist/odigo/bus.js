@@ -1,22 +1,19 @@
 /* ============================================================
    Odigo shared runtime — used by every panel window.
-   Works in THREE environments:
-     - Wails v3 desktop  : each panel is its own native window.
-                           Cross-window sync via the Wails event bus
-                           (window.wails.Events), which broadcasts to all
-                           windows. Window open/close is delegated to Go via
-                           'odigo:win-open' / 'odigo:win-close' events.
-     - Web shell (iframe): panels run inside iframes of the desktop shell.
-                           Cross-window via BroadcastChannel; open/close via
-                           postMessage to the parent shell.
-     - Plain browser tab : falls back to BroadcastChannel.
-   All data goes to the Go backend at API_BASE over HTTP (CORS-enabled).
+   Cross-window sync + window control:
+     - Wails v3 desktop  : detected via window._wails. Uses a SAME-ORIGIN control
+                           channel to the app's own asset server — fetch /cmd/*
+                           (handled in desktop/main.go). Window open/close/login are
+                           direct commands; select/filters/stats are stored in Go and
+                           windows POLL /cmd/state. This avoids the Wails JS<->Go event
+                           transport entirely (reliable everywhere).
+     - Web shell (iframe): BroadcastChannel + postMessage to the parent shell.
+   Data goes to the Go backend at API_BASE over HTTP (CORS-enabled).
 ============================================================ */
 (function () {
   const API_BASE = 'https://api-odigo.your.team';
 
-  const W = window.wails;
-  const DESKTOP = !!(W && W.Events);            // running inside the Wails webview
+  const DESKTOP = !!window._wails;                 // Wails core injected before page scripts
   const WEB_IFRAME = !DESKTOP && (window.self !== window.top);
 
   const $ = (s, r = document) => r.querySelector(s);
@@ -51,50 +48,69 @@
     return `<svg class="px" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" style="filter:drop-shadow(1px 1px 0 rgba(0,0,0,.55));">${out}</svg>`;
   }
 
-  /* ---- cross-window bus (select / filters / stats-changed) ---- */
-  const EV = (t) => 'odigo:' + t;
+  /* ---- local + cross-window event delivery ---- */
   const handlers = {};
-  const seen = new Set();                       // nonce dedup (avoid self echo)
+  function deliver(type, payload) { (handlers[type] || []).forEach((cb) => cb(payload)); }
+  function on(type, cb) { (handlers[type] = handlers[type] || []).push(cb); }
+
+  // ---- DESKTOP: same-origin /cmd control channel + /cmd/state polling ----
+  const cmd = (path, opts) => fetch(location.origin + '/cmd/' + path, opts).catch(() => {});
+
+  if (DESKTOP) {
+    let lastRev = -1, lastSel = null, lastFilters = null, lastStats = null;
+    async function poll() {
+      try {
+        const r = await fetch(location.origin + '/cmd/state', { cache: 'no-store' });
+        const s = await r.json();
+        if (s.rev !== lastRev) {
+          if (s.selection && s.selection !== lastSel) deliver('select', { handle: s.selection });
+          if (s.filters !== lastFilters && s.filters) { try { deliver('filters', JSON.parse(s.filters)); } catch (e) {} }
+          if (s.statsRev !== lastStats && lastStats !== null) deliver('stats-changed');
+          lastRev = s.rev; lastSel = s.selection; lastFilters = s.filters; lastStats = s.statsRev;
+        }
+      } catch (e) {}
+    }
+    setInterval(poll, 400); poll();
+  }
+
+  // ---- WEB: BroadcastChannel + postMessage ----
+  const seen = new Set();
   const nonce = () => Math.random().toString(36).slice(2) + Date.now();
   const bc = (!DESKTOP && 'BroadcastChannel' in window) ? new BroadcastChannel('odigo') : null;
-
-  function deliver(type, payload) { (handlers[type] || []).forEach((cb) => cb(payload)); }
-
-  function on(type, cb) {
-    (handlers[type] = handlers[type] || []).push(cb);
-    if (DESKTOP) W.Events.On(EV(type), (ev) => {
-      const m = ev && ev.data;
-      if (m && m._id && seen.has(m._id)) return; // already delivered locally
-      deliver(type, m ? m.payload : undefined);
-    });
-  }
-  function emit(type, payload) {
-    const id = nonce();
-    seen.add(id); setTimeout(() => seen.delete(id), 5000);
-    deliver(type, payload);                      // local, immediate
-    const msg = { type, payload, _id: id };
-    if (DESKTOP) W.Events.Emit(EV(type), msg);
-    else if (bc) bc.postMessage(msg);
-  }
   if (bc) bc.onmessage = (e) => {
     const m = e.data || {};
     if (m._id && seen.has(m._id)) return;
     deliver(m.type, m.payload);
   };
 
+  function emit(type, payload) {
+    deliver(type, payload); // immediate local
+    if (DESKTOP) {
+      if (type === 'select' && payload && payload.handle) cmd('select/' + encodeURIComponent(payload.handle));
+      else if (type === 'filters') cmd('filters', { method: 'POST', body: JSON.stringify(payload || {}) });
+      else if (type === 'stats-changed') cmd('stats');
+      return;
+    }
+    if (bc) { const id = nonce(); seen.add(id); setTimeout(() => seen.delete(id), 5000); bc.postMessage({ type, payload, _id: id }); }
+  }
+
   /* ---- window control ---- */
   function openWindow(panel) {
-    if (DESKTOP) { W.Events.Emit('odigo:win-open', panel); return; }
+    if (DESKTOP) { cmd('open/' + panel); return; }
     if (WEB_IFRAME) { window.parent.postMessage({ odigo: 'open', panel }, '*'); return; }
   }
   function closeSelf(id) {
-    if (DESKTOP) { W.Events.Emit('odigo:win-close', id); return; }
+    if (DESKTOP) { cmd('close/' + id); return; }
     if (WEB_IFRAME) { window.parent.postMessage({ odigo: 'close', id }, '*'); return; }
+  }
+  function signalLogin() {
+    if (DESKTOP) { cmd('login'); return; }
+    if (WEB_IFRAME) { window.parent.postMessage({ odigo: 'login' }, '*'); return; }
   }
 
   window.Odigo = {
     API_BASE, DESKTOP, WEB: WEB_IFRAME,
-    $, $$, api, qs, jsonHeaders, escapeHtml, sprite, on, emit, openWindow, closeSelf,
+    $, $$, api, qs, jsonHeaders, escapeHtml, sprite, on, emit, openWindow, closeSelf, signalLogin,
     ME: { handle: 'ventura', id: 'ventura@odigo.im' }
   };
 })();

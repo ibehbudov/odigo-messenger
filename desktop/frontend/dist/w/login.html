@@ -26,11 +26,7 @@
 <script src="/odigo/bus.js"></script>
 <script>
 const { $, $$ } = Odigo;
-function signIn(){
-  // reveal the messenger; the app (desktop) or shell (web) opens the core windows
-  if (Odigo.DESKTOP && window.wails) window.wails.Events.Emit('odigo:login', 'ventura');
-  else if (window.self !== window.top) window.parent.postMessage({ odigo: 'login' }, '*');
-}
+function signIn(){ Odigo.signalLogin(); }
 $('#lg-signin').addEventListener('click', signIn);
 $('#lg-pw').addEventListener('keydown', e => { if (e.key === 'Enter') signIn(); });
 $$('[data-close]').forEach(b => b.addEventListener('click', () => Odigo.closeSelf(b.dataset.close)));
