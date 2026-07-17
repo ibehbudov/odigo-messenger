@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Odigo</title>
+<link rel="stylesheet" href="/odigo/skin.css">
+</head>
+<body>
+<div id="desktop">
+  <div id="poster-title">odigo</div>
+  <div class="frame" id="frame-people-finder" style="left:430px;top:60px;width:300px;height:640px;">
+    <div class="grab" data-frame="people-finder"></div><iframe src="/w/people-finder" title="People Finder"></iframe>
+  </div>
+  <div class="frame" id="frame-filter" style="left:70px;top:120px;width:320px;height:500px;">
+    <div class="grab" data-frame="filter"></div><iframe src="/w/filter" title="Filter"></iframe>
+  </div>
+  <div class="frame" id="frame-details" style="left:760px;top:60px;width:520px;height:440px;">
+    <div class="grab" data-frame="details"></div><iframe src="/w/details" title="Details"></iframe>
+  </div>
+  <div class="frame" id="frame-communication" style="left:150px;top:470px;width:560px;height:380px;">
+    <div class="grab" data-frame="communication"></div><iframe src="/w/communication" title="Communication Center"></iframe>
+  </div>
+  <div class="frame" id="frame-status" style="left:340px;top:720px;width:250px;height:120px;">
+    <div class="grab" data-frame="status"></div><iframe src="/w/status" title="Status"></iframe>
+  </div>
+  <div class="frame" id="frame-send" style="left:70px;top:720px;width:220px;height:96px;">
+    <div class="grab" data-frame="send"></div><iframe src="/w/send" title="Send"></iframe>
+  </div>
+</div>
+
+<div id="taskbar">
+  <div class="brand">odigo</div>
+  <div class="tb-btn" data-toggle="people-finder">People Finder</div>
+  <div class="tb-btn" data-toggle="filter">Filter</div>
+  <div class="tb-btn" data-toggle="communication">Communication</div>
+  <div class="tb-btn" data-toggle="details">Details</div>
+  <div class="tb-btn" data-toggle="status">Status</div>
+  <div class="tb-btn" data-toggle="send">Send</div>
+  <div id="tb-clock"></div>
+</div>
+
+<script>
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
+let zTop=10;
+const frame = id => $('#frame-'+id);
+const focusFrame = f => { f.style.zIndex=(++zTop); };
+function openFrame(id){ const f=frame(id); if(!f) return; f.classList.remove('hidden'); focusFrame(f); sync(); }
+function closeFrame(id){ const f=frame(id); if(f){ f.classList.add('hidden'); sync(); } }
+function sync(){ $$('#taskbar [data-toggle]').forEach(b=>{ const f=frame(b.dataset.toggle); b.classList.toggle('active', f && !f.classList.contains('hidden')); }); }
+
+$$('.frame .grab').forEach(g=>{
+  g.addEventListener('mousedown',e=>{
+    const f=g.closest('.frame'); focusFrame(f);
+    const r=f.getBoundingClientRect(); const ox=e.clientX-r.left, oy=e.clientY-r.top;
+    const move=ev=>{ f.style.left=Math.max(0,ev.clientX-ox)+'px'; f.style.top=Math.max(0,ev.clientY-oy)+'px'; };
+    const up=()=>{ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up); e.preventDefault();
+  });
+});
+window.addEventListener('message',e=>{
+  const d=e.data||{};
+  if(d.odigo==='open') openFrame(d.panel);
+  else if(d.odigo==='close') closeFrame(d.id);
+});
+$$('#taskbar [data-toggle]').forEach(b=>b.addEventListener('click',()=>{
+  const f=frame(b.dataset.toggle);
+  if(f.classList.contains('hidden')) openFrame(b.dataset.toggle); else focusFrame(f);
+  sync();
+}));
+function tick(){ $('#tb-clock').textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+setInterval(tick,1000); tick(); sync();
+</script>
+</body>
+</html>

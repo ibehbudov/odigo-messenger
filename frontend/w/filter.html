@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>People Finder Filter</title>
+<link rel="stylesheet" href="/odigo/skin.css">
+</head>
+<body id="filter">
+<div class="panel">
+  <div class="slab">
+    <div class="filt-titlebar drag">
+      <span class="ttl">People Finder Filter</span>
+      <span class="win-btns" style="color:#cfe0f4;"><span class="nodrag" data-close="filter">&times;</span></span>
+    </div>
+    <div class="filt-search">
+      <div class="sicon"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="#2a72c8" stroke="#cfe4fa" stroke-width="1.2"/><path d="M1.5 7 H12.5 M7 1.5 C4 4 4 10 7 12.5 C10 10 10 4 7 1.5" stroke="#cfe4fa" stroke-width="1" fill="none"/></svg></div>
+      <input id="f-search" type="text" placeholder="Search topic or name…">
+    </div>
+    <div class="filt-rows" id="filt-rows"></div>
+    <div class="filt-foot">
+      <div class="sq" title="Reset" id="f-reset">&#8635;</div>
+      <div class="sq" title="Random" id="f-random">&#10033;</div>
+      <div class="spacer"></div>
+      <div class="oval" style="width:92px;" id="f-go">GO</div>
+    </div>
+  </div>
+</div>
+<script src="/odigo/bus.js"></script>
+<script>
+const { $, $$, api, emit } = Odigo;
+const state = { filters:{}, options:{} };
+const LABELS = [['topic','Topic'],['ageGroup','Age Group'],['gender','Gender'],['region','Region'],
+  ['language','Language'],['occupation','Occupation'],['status','Status'],['mood','Mood'],['intention','Intention'],['zodiac','Zodiac']];
+
+async function boot(){
+  state.options = await api('/odigo/filters');
+  $('#filt-rows').innerHTML = LABELS.map(([key,label])=>{
+    const opts=(state.options[key]||[]).map(o=>`<option value="${o}">${o}</option>`).join('');
+    return `<div class="frow"><div class="lbl">${label}</div><div class="val"><select data-key="${key}">${opts}</select></div></div>`;
+  }).join('');
+  $$('#filt-rows select').forEach(sel=>sel.addEventListener('change',()=>{ state.filters[sel.dataset.key]=sel.value; }));
+}
+function apply(){ emit('filters',{ filters:state.filters, search:$('#f-search').value.trim() }); }
+
+$('#f-go').addEventListener('click',apply);
+$('#f-search').addEventListener('keydown',e=>{ if(e.key==='Enter') apply(); });
+$('#f-reset').addEventListener('click',()=>{ state.filters={}; $('#f-search').value=''; $$('#filt-rows select').forEach(s=>s.selectedIndex=0); apply(); });
+$('#f-random').addEventListener('click',async()=>{
+  const d=await api('/odigo/people'); if(d.people.length){ const p=d.people[Math.floor(Math.random()*d.people.length)]; emit('select',{handle:p.handle}); }
+});
+$$('[data-close]').forEach(b=>b.addEventListener('click',()=>Odigo.closeSelf(b.dataset.close)));
+
+boot();
+</script>
+</body>
+</html>

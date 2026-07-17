@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Send</title>
+<link rel="stylesheet" href="/odigo/skin.css">
+</head>
+<body>
+<div class="panel">
+  <div id="send-outer" class="drag">
+    <div class="inner">
+      <div class="online-tab nodrag" id="send-tab">online</div>
+      <div class="send-stack"><div class="send-word">SEND</div><div class="send-env"></div></div>
+      <div class="send-logo nodrag" id="send-open" title="Open Communication Center"><div class="script-logo"><span class="slash-o">o</span>digo</div></div>
+    </div>
+  </div>
+</div>
+<script src="/odigo/bus.js"></script>
+<script>
+const { $, emit, openWindow } = Odigo;
+let online=true;
+$('#send-tab').addEventListener('click',(e)=>{ e.stopPropagation(); online=!online;
+  $('#send-tab').textContent=online?'online':'offline'; $('#send-tab').classList.toggle('off',!online); });
+$('#send-open').addEventListener('click',(e)=>{ e.stopPropagation(); openWindow('communication'); });
+</script>
+</body>
+</html>

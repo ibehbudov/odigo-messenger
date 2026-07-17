@@ -1,12 +1,12 @@
 name: Build Odigo
 
-# Build the NativePHP (Electron) desktop app for Linux, Windows and macOS.
-# Trigger by pushing a tag like `v1.0.0`, or run manually from the Actions tab.
+# Build the Wails v3 desktop app (Go) for Linux, Windows and macOS.
+# Each runner builds its NATIVE architecture (macos-latest = Apple Silicon arm64),
+# which also sidesteps the old dual-arch mac race. Trigger with a `v*` tag or manually.
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -23,102 +23,101 @@ jobs:
           - os: ubuntu-latest
             platform: linux
           - os: windows-latest
-            platform: win
+            platform: windows
           - os: macos-latest
             platform: mac
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+      - uses: actions/setup-go@v5
         with:
-          php-version: '8.3'
-          extensions: zip, sqlite3, mbstring, xml, curl, intl, gd, fileinfo
-          tools: composer:v2
+          go-version: '1.25'
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+      - name: Linux deps (GTK4 + WebKitGTK 6.0)
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
-      - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Prepare environment
+      - name: Sync shared frontend into the desktop embed dir
         shell: bash
         run: |
-          cp .env.example .env
-          php artisan key:generate
+          rm -rf desktop/frontend/dist
+          mkdir -p desktop/frontend/dist
+          cp -r frontend/odigo frontend/w frontend/index.html desktop/frontend/dist/
 
-      - name: Install NPM dependencies
-        run: npm install
-
-      - name: Build frontend assets
-        run: npm run build
-
-      - name: Build desktop app (${{ matrix.platform }})
+      - name: Build (Linux)
+        if: matrix.platform == 'linux'
         shell: bash
         run: |
-          if [ "${{ matrix.platform }}" = "mac" ]; then
-            # Build each macOS arch in a SEPARATE electron-builder run. The default
-            # `native:build mac` packages arm64+x64 in one process, where NativePHP's
-            # un-awaited beforePack PHP-binary copy races the packaging and the arm64
-            # DMG ends up with the x64 binary -> crash on Apple Silicon. Separate runs
-            # repopulate resources/php per arch and fix the crash.
-            php artisan native:build mac arm64
-            php artisan native:build mac x64
-          else
-            php artisan native:build ${{ matrix.platform }}
-          fi
+          cd desktop && go build -trimpath -ldflags="-s -w" -o ../dist/odigo .
+          cd .. && (cd dist && zip -r Odigo-linux.zip odigo)
 
-      - name: Upload build artifacts
+      - name: Build (Windows)
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: |
+          cd desktop && go build -trimpath -ldflags="-s -w -H windowsgui" -o ../dist/Odigo.exe .
+
+      - name: Build (macOS, .app bundle)
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          cd desktop && go build -trimpath -ldflags="-s -w" -o /tmp/odigo-bin .
+          cd ..
+          APP="dist/Odigo.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp /tmp/odigo-bin "$APP/Contents/MacOS/Odigo"
+          chmod +x "$APP/Contents/MacOS/Odigo"
+          cat > "$APP/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>Odigo</string>
+            <key>CFBundleDisplayName</key><string>Odigo</string>
+            <key>CFBundleIdentifier</key><string>com.ibehbudov.odigo</string>
+            <key>CFBundleVersion</key><string>2.0.0</string>
+            <key>CFBundleShortVersionString</key><string>2.0.0</string>
+            <key>CFBundleExecutable</key><string>Odigo</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>10.15</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          # ad-hoc sign so it at least runs after quarantine removal
+          codesign --force --deep --sign - "$APP" || true
+          (cd dist && zip -r Odigo-mac-arm64.zip Odigo.app)
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: odigo-${{ matrix.platform }}
           path: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.zip
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.snap
-            dist/*.rpm
-            dist/*.blockmap
-            dist/latest*.yml
+            dist/Odigo-linux.zip
+            dist/Odigo.exe
+            dist/Odigo-mac-arm64.zip
           if-no-files-found: warn
 
-      - name: Attach artifacts to GitHub Release
+      - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            ## Odigo ${{ github.ref_name }}
+            ## Odigo ${{ github.ref_name }} — Wails v3 (Go) desktop
 
-            ### Downloads
-            - **macOS (Apple Silicon):** `Odigo-*-arm64.dmg`
-            - **macOS (Intel):** `Odigo-*-x64.dmg`
-            - **Windows:** `Odigo-*.exe`
-            - **Linux:** `Odigo-*.AppImage` or `Odigo-*.deb`
+            - **macOS (Apple Silicon):** `Odigo-mac-arm64.zip` → unzip → `Odigo.app`
+            - **Windows:** `Odigo.exe`
+            - **Linux:** `Odigo-linux.zip` (needs `gtk4` + `webkitgtk-6.0` installed)
 
-            ### ⚠️ macOS: "Odigo is damaged and can't be opened"
-            The app is not signed with an Apple Developer ID (no paid Apple account),
-            so macOS quarantines it on download. It is **not** actually damaged. To open:
+            The app talks to the API at `https://api-odigo.your.team`.
 
-            1. Drag **Odigo** from the DMG into **Applications**.
-            2. In **Terminal**, run:
-               ```
-               xattr -cr /Applications/Odigo.app
-               ```
-            3. Open Odigo normally.
-
-            (Right-click → Open is not enough for this message — the `xattr` step is required.)
+            ### macOS: "Odigo is damaged and can't be opened"
+            The app is not signed with an Apple Developer ID, so macOS quarantines it.
+            It is not damaged. To open:
+            ```
+            xattr -cr /Applications/Odigo.app
+            ```
+            (move Odigo.app to Applications first; right-click → Open is not enough).
           files: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.zip
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.snap
-            dist/*.rpm
+            dist/Odigo-linux.zip
+            dist/Odigo.exe
+            dist/Odigo-mac-arm64.zip

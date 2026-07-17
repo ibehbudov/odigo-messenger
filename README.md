@@ -1,59 +1,48 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Odigo
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Retro-styled multi-window messenger. **Go monorepo:**
 
-## About Laravel
+```
+backend/    Go API + web server (chi + pgx → PostgreSQL). Serves the JSON API
+            and the web preview. Deployed at api-odigo.your.team + odigo.your.team.
+frontend/   Shared retro UI (skin.css, bus.js, one HTML per panel + web shell).
+            Used by the web preview AND embedded into the desktop app.
+desktop/    Wails v3 (Go) desktop app — each panel is its own frameless native
+            window, draggable anywhere. Talks to https://api-odigo.your.team.
+deploy/     Docker Compose (Go backend container on www_appnet + Postgres).
+```
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Backend
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+```bash
+cd backend
+DATABASE_URL='postgres://odigo:...@localhost:5432/odigo?sslmode=disable' \
+  FRONTEND_DIR=../frontend go run .
+```
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Endpoints (`/odigo/*`): `filters`, `people` (filter + `search` + `page`, 10/pg),
+`person/{handle}`, `stats`, `messages/{handle}`, `POST messages`, `POST friends`.
+Schema + mock seed (60 people, sample history) run automatically on first start.
 
-## Learning Laravel
+## Desktop (Wails v3)
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+Requires Go 1.25 and, on Linux, `gtk4` + `webkitgtk-6.0`. `wails3` CLI:
+`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.117`.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+```bash
+# sync the shared frontend into the embed dir, then build
+rm -rf desktop/frontend/dist && mkdir -p desktop/frontend/dist
+cp -r frontend/odigo frontend/w frontend/index.html desktop/frontend/dist/
+cd desktop && go build -o odigo .
+```
 
-## Laravel Sponsors
+CI (`.github/workflows/build.yml`) builds Linux/Windows/macOS on tag `v*`.
+See [INSTALL.md](INSTALL.md) for the macOS "damaged"/unsigned note.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Deploy
 
-### Premium Partners
-
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
-
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+docker compose -f deploy/docker-compose.yml -p odigo up -d --build --remove-orphans
+```
+Backend joins the shared `www_appnet` and connects to `www-pgsql-1`. The ingress
+routes `odigo.your.team` (web) and `api-odigo.your.team` (API) to `odigo-api:8080`.
