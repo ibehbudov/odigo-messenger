@@ -22,7 +22,12 @@ body{
 .nodrag,button,select,input,textarea,.oval,.det-btn,.w95btn,.tgl,.cc-tab,.side-btn,.toolbtn,.person,.sq,.combo,.win-btns span,#send-outer{-webkit-app-region:no-drag;--wails-non-client-region:normal;}
 .hidden{display:none !important;}
 
-.win-btns{display:flex;gap:8px;font-weight:bold;font-size:12px;}
+/* The draggable strip must NOT wrap the window buttons: Wails caption regions
+   include their children, so buttons inside a caption are swallowed by the OS
+   drag and never get JS clicks. Keep .drag (caption) as a sibling of .win-btns. */
+.tb-grab{flex:1;display:flex;align-items:center;gap:6px;min-width:0;}
+.tb-grab .ttl{flex:1;}
+.win-btns{display:flex;gap:8px;font-weight:bold;font-size:12px;-webkit-app-region:no-drag;--wails-non-client-region:normal;}
 .win-btns span{cursor:pointer;}
 .win-btns span:hover{color:#fff;}
 
@@ -264,3 +269,18 @@ body{
   background:linear-gradient(180deg,#5e87c2,#33598f);border:1px solid #1b2f52;box-shadow:inset 0 1px 0 rgba(255,255,255,.35);}
 .tb-btn.active{background:linear-gradient(180deg,#8fb0da,#4f72a8);font-weight:bold;}
 #tb-clock{margin-left:auto;color:#eaf2fc;font-size:11px;padding:0 10px;}
+
+/* ============ LOGIN ============ */
+#login .device{padding:0 12px 16px;justify-content:flex-start;}
+.login-body{display:flex;flex-direction:column;gap:7px;padding:6px 8px 4px;}
+.login-logo{align-self:center;font-family:'Brush Script MT','Segoe Script',cursive;font-style:italic;
+  font-size:52px;color:#e8edf4;text-shadow:2px 2px 2px rgba(0,0,0,.8);margin:6px 0 10px;}
+.login-logo .slash-o{position:relative;display:inline-block;}
+.login-logo .slash-o::after{content:"";position:absolute;left:-6px;right:-2px;top:52%;height:3px;
+  background:#e8edf4;transform:rotate(-38deg);border-radius:2px;box-shadow:1px 1px 1px rgba(0,0,0,.7);}
+.lg-label{color:#cfe0f4;font-size:11px;font-weight:bold;text-shadow:0 1px 1px rgba(0,0,0,.5);}
+.lg-input{height:26px;border-radius:6px;border:1px solid #10151e;padding:0 10px;font-family:inherit;font-size:12px;
+  background:linear-gradient(180deg,#1a2230,#252e3e);color:#eaf2fc;outline:0;
+  box-shadow:inset 0 2px 3px rgba(0,0,0,.6);}
+.lg-btn{height:30px;border-radius:15px;margin-top:10px;font-size:13px;letter-spacing:1px;}
+.lg-hint{color:#7f8ea3;font-size:10px;text-align:center;margin-top:6px;}

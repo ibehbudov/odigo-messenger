@@ -15,7 +15,7 @@ import (
 )
 
 var panels = map[string]bool{
-	"people-finder": true, "filter": true, "details": true,
+	"login": true, "people-finder": true, "filter": true, "details": true,
 	"communication": true, "status": true, "send": true,
 }
 

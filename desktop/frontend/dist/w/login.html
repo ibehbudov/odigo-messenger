@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Odigo — Sign In</title>
+<link rel="stylesheet" href="/odigo/skin.css">
+</head>
+<body id="login">
+<div class="panel">
+  <div class="device">
+    <div class="dev-titlebar">
+      <span class="drag tb-grab"><span class="o-glyph" style="font-size:15px;">&#216;</span><span class="ttl">Odigo</span></span>
+      <span class="win-btns"><span data-close="login">&times;</span></span>
+    </div>
+    <div class="login-body">
+      <div class="login-logo"><span class="slash-o">o</span>digo</div>
+      <label class="lg-label">Odigo ID</label>
+      <input class="lg-input" id="lg-id" value="ventura@odigo.im" spellcheck="false">
+      <label class="lg-label">Password</label>
+      <input class="lg-input" id="lg-pw" type="password" value="demodemo">
+      <div class="oval go lg-btn" id="lg-signin">Sign In</div>
+      <div class="lg-hint">Demo login — press Sign In (any password works)</div>
+    </div>
+  </div>
+</div>
+<script src="/odigo/bus.js"></script>
+<script>
+const { $, $$ } = Odigo;
+function signIn(){
+  // reveal the messenger; the app (desktop) or shell (web) opens the core windows
+  if (Odigo.DESKTOP && window.wails) window.wails.Events.Emit('odigo:login', 'ventura');
+  else if (window.self !== window.top) window.parent.postMessage({ odigo: 'login' }, '*');
+}
+$('#lg-signin').addEventListener('click', signIn);
+$('#lg-pw').addEventListener('keydown', e => { if (e.key === 'Enter') signIn(); });
+$$('[data-close]').forEach(b => b.addEventListener('click', () => Odigo.closeSelf(b.dataset.close)));
+</script>
+</body>
+</html>

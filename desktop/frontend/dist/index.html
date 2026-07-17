@@ -9,27 +9,30 @@
 <body>
 <div id="desktop">
   <div id="poster-title">odigo</div>
-  <div class="frame" id="frame-people-finder" style="left:430px;top:60px;width:300px;height:640px;">
+  <div class="frame" id="frame-login" style="left:520px;top:150px;width:340px;height:430px;">
+    <div class="grab" data-frame="login"></div><iframe src="/w/login" title="Sign In"></iframe>
+  </div>
+  <div class="frame hidden" id="frame-people-finder" style="left:430px;top:60px;width:300px;height:640px;">
     <div class="grab" data-frame="people-finder"></div><iframe src="/w/people-finder" title="People Finder"></iframe>
   </div>
-  <div class="frame" id="frame-filter" style="left:70px;top:120px;width:320px;height:500px;">
+  <div class="frame hidden" id="frame-filter" style="left:70px;top:120px;width:320px;height:500px;">
     <div class="grab" data-frame="filter"></div><iframe src="/w/filter" title="Filter"></iframe>
   </div>
-  <div class="frame" id="frame-details" style="left:760px;top:60px;width:520px;height:440px;">
+  <div class="frame hidden" id="frame-details" style="left:760px;top:60px;width:520px;height:440px;">
     <div class="grab" data-frame="details"></div><iframe src="/w/details" title="Details"></iframe>
   </div>
-  <div class="frame" id="frame-communication" style="left:150px;top:470px;width:560px;height:380px;">
+  <div class="frame hidden" id="frame-communication" style="left:150px;top:470px;width:560px;height:380px;">
     <div class="grab" data-frame="communication"></div><iframe src="/w/communication" title="Communication Center"></iframe>
   </div>
-  <div class="frame" id="frame-status" style="left:340px;top:720px;width:250px;height:120px;">
+  <div class="frame hidden" id="frame-status" style="left:340px;top:720px;width:250px;height:120px;">
     <div class="grab" data-frame="status"></div><iframe src="/w/status" title="Status"></iframe>
   </div>
-  <div class="frame" id="frame-send" style="left:70px;top:720px;width:220px;height:96px;">
+  <div class="frame hidden" id="frame-send" style="left:70px;top:720px;width:220px;height:96px;">
     <div class="grab" data-frame="send"></div><iframe src="/w/send" title="Send"></iframe>
   </div>
 </div>
 
-<div id="taskbar">
+<div id="taskbar" class="hidden">
   <div class="brand">odigo</div>
   <div class="tb-btn" data-toggle="people-finder">People Finder</div>
   <div class="tb-btn" data-toggle="filter">Filter</div>
@@ -61,8 +64,13 @@ $$('.frame .grab').forEach(g=>{
 });
 window.addEventListener('message',e=>{
   const d=e.data||{};
-  if(d.odigo==='open') openFrame(d.panel);
-  else if(d.odigo==='close') closeFrame(d.id);
+  if(d.odigo==='login'){
+    closeFrame('login');
+    ['people-finder','status','send'].forEach(openFrame);
+    $('#taskbar').classList.remove('hidden');
+  }
+  else if(d.odigo==='open') openFrame(d.panel);
+  else if(d.odigo==='close'){ if(d.id==='people-finder'){ location.reload(); } else closeFrame(d.id); }
 });
 $$('#taskbar [data-toggle]').forEach(b=>b.addEventListener('click',()=>{
   const f=frame(b.dataset.toggle);
