@@ -55,7 +55,8 @@ class OdigoController extends Controller
 
         Window::open($name)
             ->title($cfg['title'])
-            ->url('/w/' . $name)
+            // Absolute URL required (NativePHP -> Electron loadURL); see NativeAppServiceProvider.
+            ->url(url('/w/' . $name))
             ->width($cfg['w'])
             ->height($cfg['h'])
             ->position($cfg['x'], $cfg['y'])

@@ -19,7 +19,10 @@ class NativeAppServiceProvider implements ProvidesPhpIni
         foreach (OdigoController::windows() as $name => $cfg) {
             Window::open($name)
                 ->title($cfg['title'])
-                ->url('/w/' . $name)
+                // Must be an ABSOLUTE url — NativePHP passes it straight to Electron's
+                // loadURL(); a bare "/w/..." path yields a blank window. url() builds the
+                // internal-server absolute URL (same as the default window's url('/')).
+                ->url(url('/w/' . $name))
                 ->width($cfg['w'])
                 ->height($cfg['h'])
                 ->position($cfg['x'], $cfg['y'])
