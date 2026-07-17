@@ -13,8 +13,13 @@
 (function () {
   const API_BASE = 'https://api-odigo.your.team';
 
-  const DESKTOP = !!window._wails;                 // Wails core injected before page scripts
-  const WEB_IFRAME = !DESKTOP && (window.self !== window.top);
+  // Desktop detection must be RACE-FREE: window._wails is injected by the Wails core
+  // but may not be present yet when bus.js runs. The page URL is reliable — the web
+  // build is served from *.your.team, the desktop app from a custom scheme
+  // (wails://localhost etc.). So: not a your.team host => desktop app.
+  const WEB_HOST = /(^|\.)your\.team$/i.test(location.hostname);
+  const DESKTOP = !WEB_HOST;
+  const WEB_IFRAME = WEB_HOST && (window.self !== window.top);
 
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -53,8 +58,36 @@
   function deliver(type, payload) { (handlers[type] || []).forEach((cb) => cb(payload)); }
   function on(type, cb) { (handlers[type] = handlers[type] || []).push(cb); }
 
+  // ===== DIAGNOSTICS (temporary) — phone home + on-screen overlay =====
+  const DBG = [];
+  function paintOverlay() {
+    let el = document.getElementById('__odbg');
+    if (!el) {
+      if (!document.body) return;
+      el = document.createElement('div');
+      el.id = '__odbg';
+      el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;background:rgba(0,0,0,.8);color:#0f0;font:9px/1.25 monospace;padding:2px 4px;max-height:30px;overflow:hidden;white-space:nowrap;pointer-events:none;';
+      document.body.appendChild(el);
+    }
+    el.textContent = 'D=' + DESKTOP + ' ' + (DBG.slice(-2).join(' ¦ '));
+  }
+  function dbg(m) {
+    DBG.push(m);
+    try { fetch(API_BASE + '/odigo/dbg?m=' + encodeURIComponent(location.pathname + ' | ' + m)); } catch (e) {}
+    if (document.readyState !== 'loading') paintOverlay();
+    else document.addEventListener('DOMContentLoaded', paintOverlay, { once: true });
+  }
+  dbg('LOAD desktop=' + DESKTOP + ' _wails=' + (typeof window._wails) + ' wails=' + (typeof window.wails));
+
   // ---- DESKTOP: same-origin /cmd control channel + /cmd/state polling ----
-  const cmd = (path, opts) => fetch(location.origin + '/cmd/' + path, opts).catch(() => {});
+  async function cmd(path, opts) {
+    dbg('cmd-> ' + path);
+    try {
+      const r = await fetch(location.origin + '/cmd/' + path, opts);
+      dbg('cmd<- ' + path + ' status=' + r.status);
+      return r;
+    } catch (e) { dbg('cmd!! ' + path + ' err=' + e); }
+  }
 
   if (DESKTOP) {
     let lastRev = -1, lastSel = null, lastFilters = null, lastStats = null;
@@ -96,21 +129,35 @@
 
   /* ---- window control ---- */
   function openWindow(panel) {
+    dbg('openWindow ' + panel);
     if (DESKTOP) { cmd('open/' + panel); return; }
     if (WEB_IFRAME) { window.parent.postMessage({ odigo: 'open', panel }, '*'); return; }
   }
   function closeSelf(id) {
+    dbg('closeSelf ' + id);
     if (DESKTOP) { cmd('close/' + id); return; }
     if (WEB_IFRAME) { window.parent.postMessage({ odigo: 'close', id }, '*'); return; }
   }
   function signalLogin() {
+    dbg('signalLogin');
     if (DESKTOP) { cmd('login'); return; }
     if (WEB_IFRAME) { window.parent.postMessage({ odigo: 'login' }, '*'); return; }
   }
 
   window.Odigo = {
-    API_BASE, DESKTOP, WEB: WEB_IFRAME,
+    API_BASE, DESKTOP, WEB: WEB_IFRAME, dbg,
     $, $$, api, qs, jsonHeaders, escapeHtml, sprite, on, emit, openWindow, closeSelf, signalLogin,
     ME: { handle: 'ventura', id: 'ventura@odigo.im' }
   };
+  // Desktop self-test on launch (no click needed): if the login window can reach
+  // /cmd and open the Status window on its own, the /cmd channel works and the only
+  // remaining suspect is click delivery. Runs only in the login window.
+  if (DESKTOP && location.pathname.indexOf('login') !== -1) {
+    setTimeout(async () => {
+      dbg('SELFTEST begin');
+      try { const r = await fetch(location.origin + '/cmd/state'); dbg('SELFTEST /cmd/state=' + r.status + ' body=' + (await r.text()).slice(0, 60)); } catch (e) { dbg('SELFTEST /cmd/state ERR=' + e); }
+      await cmd('open/status');   // should pop the Status window if /cmd works
+      dbg('SELFTEST end (Status window should have appeared)');
+    }, 2500);
+  }
 })();

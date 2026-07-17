@@ -48,6 +48,12 @@ func main() {
 		r.Get("/messages/{handle}", api.history)
 		r.Post("/messages", api.send)
 		r.Post("/friends", api.addFriend)
+		// remote diagnostics: the desktop app phones home so we can trace what
+		// happens on a real machine we can't run (read via `docker logs`).
+		r.Get("/dbg", func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("ODBG %s", r.URL.Query().Get("m"))
+			w.Write([]byte("ok"))
+		})
 		// static assets shared by the panels
 		r.Get("/skin.css", serveFile(filepath.Join(frontend, "odigo", "skin.css")))
 		r.Get("/bus.js", serveFile(filepath.Join(frontend, "odigo", "bus.js")))
