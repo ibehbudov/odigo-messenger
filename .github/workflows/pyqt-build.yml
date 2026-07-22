@@ -1,8 +1,9 @@
 name: Build Odigo (PyQt)
 
-# Build the native PyQt6 desktop port (pyqt/) into a macOS .app + .dmg with
-# PyInstaller. Runs on the arm64 macOS runner (macos-latest = Apple Silicon).
-# Trigger: manually (Run workflow), on any push touching pyqt/, or a `pyqt-v*` tag.
+# Build the native PyQt6 desktop port (pyqt/) for macOS, Windows and Linux with
+# PyInstaller. Each runner builds its native arch (macos-latest = Apple Silicon
+# arm64, windows/linux = x64). Trigger: manually, on any push touching pyqt/, or
+# a `pyqt-v*` tag (which also publishes a GitHub Release).
 # The Go/Wails app has its own workflow (build.yml) on `v*` tags — kept separate.
 
 on:
@@ -18,9 +19,19 @@ permissions:
   contents: write
 
 jobs:
-  build-mac:
-    name: Build macOS (Apple Silicon)
-    runs-on: macos-latest
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
     defaults:
       run:
         working-directory: pyqt
@@ -32,57 +43,96 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Linux Qt runtime libs
+        if: matrix.platform == 'linux'
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxcb-cursor0 libxkbcommon0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
+
       - name: Install deps + PyInstaller
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      - name: Build .app with PyInstaller
+      - name: Build (macOS)
+        if: matrix.platform == 'mac'
+        shell: bash
         run: |
-          pyinstaller --noconfirm --clean --windowed \
-            --name Odigo \
-            --osx-bundle-identifier com.ibehbudov.odigo.pyqt \
-            main.py
-          # PyInstaller emits dist/Odigo.app
-
-      - name: Ad-hoc sign (so it launches after quarantine removal)
-        run: codesign --force --deep --sign - dist/Odigo.app || true
-
-      - name: Package .dmg + .zip
-        run: |
+          pyinstaller --noconfirm --clean --windowed --name Odigo \
+            --osx-bundle-identifier com.ibehbudov.odigo.pyqt main.py
+          codesign --force --deep --sign - dist/Odigo.app || true
           hdiutil create -volname "Odigo" -srcfolder dist/Odigo.app \
             -ov -format UDZO dist/Odigo-pyqt-mac-arm64.dmg
           (cd dist && zip -r -y Odigo-pyqt-mac-arm64.zip Odigo.app)
-          ls -lh dist/*.dmg dist/*.zip
+
+      - name: Build (Windows)
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name Odigo main.py
+          # PyInstaller emits dist/Odigo/ (onedir) with Odigo.exe inside
+
+      - name: Package (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/Odigo -DestinationPath dist/Odigo-pyqt-win-x64.zip -Force
+
+      - name: Build (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name Odigo main.py
+          (cd dist && zip -r Odigo-pyqt-linux-x64.zip Odigo)
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: odigo-pyqt-mac-arm64
+          name: odigo-pyqt-${{ matrix.platform }}
           path: |
-            pyqt/dist/Odigo-pyqt-mac-arm64.dmg
-            pyqt/dist/Odigo-pyqt-mac-arm64.zip
+            pyqt/dist/*.dmg
+            pyqt/dist/Odigo-pyqt-*.zip
           if-no-files-found: error
 
+  release:
+    name: Publish Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: odigo-pyqt-*
+          merge-multiple: true
+
       - name: Attach to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            ## Odigo ${{ github.ref_name }} — native PyQt6 desktop (macOS, Apple Silicon)
+            ## Odigo ${{ github.ref_name }} — native PyQt6 desktop
 
-            - **`Odigo-pyqt-mac-arm64.dmg`** — open, drag Odigo.app to Applications
-            - **`Odigo-pyqt-mac-arm64.zip`** — unzip → `Odigo.app`
+            - **macOS (Apple Silicon):** `Odigo-pyqt-mac-arm64.dmg` (open → drag to Applications) or `.zip`
+            - **Windows (x64):** `Odigo-pyqt-win-x64.zip` → unzip → `Odigo/Odigo.exe`
+            - **Linux (x64):** `Odigo-pyqt-linux-x64.zip` → unzip → `./Odigo/Odigo`
 
             Talks to the API at `https://api-odigo.your.team`.
 
             ### macOS: "Odigo is damaged and can't be opened"
-            The app is not signed with an Apple Developer ID, so macOS quarantines it.
-            It is not damaged. After moving Odigo.app to Applications:
+            Not signed with an Apple Developer ID, so macOS quarantines it — it is
+            not damaged. After moving Odigo.app to Applications:
             ```
             xattr -cr /Applications/Odigo.app
             ```
             (right-click → Open is not enough on Apple Silicon).
-          files: |
-            pyqt/dist/Odigo-pyqt-mac-arm64.dmg
-            pyqt/dist/Odigo-pyqt-mac-arm64.zip
+
+            ### Windows: "Windows protected your PC" (SmartScreen)
+            Unsigned build → click **More info → Run anyway**.
+
+            ### Linux
+            Built on Ubuntu 24.04 (needs a matching-or-newer glibc + an X11/Wayland
+            session). Run `./Odigo/Odigo` from the unzipped folder.
+          files: artifacts/*
