@@ -2,6 +2,8 @@
 pixel-doll sprites, frameless-draggable window base, and the window manager."""
 from __future__ import annotations
 
+import threading
+
 import requests
 from PyQt6.QtCore import (
     Qt, QObject, QRunnable, QThreadPool, pyqtSignal, QPoint, QRectF,
@@ -36,18 +38,27 @@ AFTER_LOGIN = ["people-finder", "status", "send"]
 class Api:
     def __init__(self, base: str = API_BASE):
         self.base = base
-        self.s = requests.Session()
+        # requests.Session is NOT safe to share across threads; api calls run on a
+        # QThreadPool, so keep one Session per worker thread.
+        self._local = threading.local()
+
+    def _session(self) -> requests.Session:
+        s = getattr(self._local, "s", None)
+        if s is None:
+            s = requests.Session()
+            self._local.s = s
+        return s
 
     def _url(self, path: str) -> str:
         return path if path.startswith("http") else self.base + path
 
     def get(self, path: str, params: dict | None = None):
-        r = self.s.get(self._url(path), params=params, timeout=15)
+        r = self._session().get(self._url(path), params=params, timeout=15)
         r.raise_for_status()
         return r.json()
 
     def post(self, path: str, payload: dict):
-        r = self.s.post(self._url(path), json=payload, timeout=15)
+        r = self._session().post(self._url(path), json=payload, timeout=15)
         r.raise_for_status()
         return r.json()
 

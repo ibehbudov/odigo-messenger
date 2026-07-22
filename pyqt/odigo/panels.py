@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import random
+from urllib.parse import quote
 
 from PyQt6.QtCore import Qt, QTimer, QRectF, pyqtSignal
 from PyQt6.QtGui import (
@@ -145,13 +146,17 @@ class PersonMarker(QWidget):
         img.setPixmap(sprite_pixmap(2.4, person.get("sprite", "gold")))
         img.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lo.addWidget(img)
-        nm = QLabel(person["display_name"])
-        nm.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.nm = QLabel(person["display_name"])
+        self.nm.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lo.addWidget(self.nm)
+        self.set_selected(selected)
+        self.adjustSize()
+
+    def set_selected(self, selected: bool):
         color = "#ffe27a" if selected else "#ffffff"
         weight = "bold" if selected else "normal"
-        nm.setStyleSheet(f"color:{color};font-size:9px;font-weight:{weight};background:transparent;")
-        lo.addWidget(nm)
-        self.adjustSize()
+        self.nm.setStyleSheet(
+            f"color:{color};font-size:9px;font-weight:{weight};background:transparent;")
 
     def mousePressEvent(self, e):
         if e.button() == LEFT:
@@ -192,8 +197,14 @@ class Radar(QWidget):
         self._relayout()
 
     def set_current(self, current):
+        # Restyle in place — do NOT rebuild markers. Rebuilding here deletes the
+        # very marker being clicked, which breaks real (physical) double-clicks:
+        # the second press would land on a freshly-created widget and Qt's
+        # double-click detection (same-widget) never fires -> Communication
+        # Center wouldn't open on double-click.
         self._current = current
-        self._relayout()
+        for m in self._markers:
+            m.set_selected(m.handle == current)
 
     def resizeEvent(self, e):
         self._place_markers()
@@ -597,7 +608,7 @@ class DetailsWindow(FramelessWindow):
         return b
 
     def _load(self, handle):
-        api_get("/odigo/person/" + handle, None, self._render)
+        api_get("/odigo/person/" + quote(handle), None, self._render)
 
     def _render(self, p: dict):
         self.current = p
@@ -667,6 +678,7 @@ class CommunicationWindow(FramelessWindow):
         self.wm, self.bus = wm, bus
         self.current: dict | None = None
         self.msg_type = "Message"
+        self._tok = 0  # invalidates stale async person-fetches (out-of-order guard)
 
         w2k = QFrame()
         w2k.setObjectName("w2k")
@@ -797,7 +809,12 @@ class CommunicationWindow(FramelessWindow):
         self._compose()
 
     def _set_target(self, handle):
+        self._tok += 1
+        my = self._tok
+
         def done(p):
+            if my != self._tok:   # a newer select/send superseded this fetch
+                return
             self.current = p
             self.to.setText("Send to: " + p["display_name"])
             self.id.setText("ID: " + p["odigo_id"])
@@ -806,7 +823,7 @@ class CommunicationWindow(FramelessWindow):
             self._set_status(f"Compose a {self.msg_type} to {p['display_name']}")
             if self.log.isVisible():
                 self._history()
-        api_get("/odigo/person/" + handle, None, done)
+        api_get("/odigo/person/" + quote(handle), None, done)
 
     def _send(self):
         if not self.current:
@@ -816,6 +833,7 @@ class CommunicationWindow(FramelessWindow):
         if not body:
             self._set_status("Nothing to send")
             return
+        self._tok += 1  # this send is the latest action — drop any pending target fetch
 
         def done(res):
             self.text.clear()
@@ -848,7 +866,7 @@ class CommunicationWindow(FramelessWindow):
             self.log.show()
             self.compose_btn.show()
             self._set_status("History with " + self.current["display_name"])
-        api_get("/odigo/messages/" + self.current["handle"], None, done)
+        api_get("/odigo/messages/" + quote(self.current["handle"]), None, done)
 
     def _compose(self):
         self.log.hide()
