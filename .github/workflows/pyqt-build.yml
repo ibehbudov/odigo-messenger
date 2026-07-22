@@ -1,0 +1,88 @@
+name: Build Odigo (PyQt)
+
+# Build the native PyQt6 desktop port (pyqt/) into a macOS .app + .dmg with
+# PyInstaller. Runs on the arm64 macOS runner (macos-latest = Apple Silicon).
+# Trigger: manually (Run workflow), on any push touching pyqt/, or a `pyqt-v*` tag.
+# The Go/Wails app has its own workflow (build.yml) on `v*` tags — kept separate.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pyqt/**'
+      - '.github/workflows/pyqt-build.yml'
+    tags: ['pyqt-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    name: Build macOS (Apple Silicon)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: pyqt
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build .app with PyInstaller
+        run: |
+          pyinstaller --noconfirm --clean --windowed \
+            --name Odigo \
+            --osx-bundle-identifier com.ibehbudov.odigo.pyqt \
+            main.py
+          # PyInstaller emits dist/Odigo.app
+
+      - name: Ad-hoc sign (so it launches after quarantine removal)
+        run: codesign --force --deep --sign - dist/Odigo.app || true
+
+      - name: Package .dmg + .zip
+        run: |
+          hdiutil create -volname "Odigo" -srcfolder dist/Odigo.app \
+            -ov -format UDZO dist/Odigo-pyqt-mac-arm64.dmg
+          (cd dist && zip -r -y Odigo-pyqt-mac-arm64.zip Odigo.app)
+          ls -lh dist/*.dmg dist/*.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: odigo-pyqt-mac-arm64
+          path: |
+            pyqt/dist/Odigo-pyqt-mac-arm64.dmg
+            pyqt/dist/Odigo-pyqt-mac-arm64.zip
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            ## Odigo ${{ github.ref_name }} — native PyQt6 desktop (macOS, Apple Silicon)
+
+            - **`Odigo-pyqt-mac-arm64.dmg`** — open, drag Odigo.app to Applications
+            - **`Odigo-pyqt-mac-arm64.zip`** — unzip → `Odigo.app`
+
+            Talks to the API at `https://api-odigo.your.team`.
+
+            ### macOS: "Odigo is damaged and can't be opened"
+            The app is not signed with an Apple Developer ID, so macOS quarantines it.
+            It is not damaged. After moving Odigo.app to Applications:
+            ```
+            xattr -cr /Applications/Odigo.app
+            ```
+            (right-click → Open is not enough on Apple Silicon).
+          files: |
+            pyqt/dist/Odigo-pyqt-mac-arm64.dmg
+            pyqt/dist/Odigo-pyqt-mac-arm64.zip
